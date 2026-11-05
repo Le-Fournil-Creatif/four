@@ -9,7 +9,7 @@
 ![Le menu de four, avec des projets fictifs](docs/screenshot.png)
 
 - **Au four** : plusieurs sessions par projet, avec `✓ cuit` et `◆ attend` visibles depuis n'importe où.
-- **En brigade** : qui est en ligne, et qui travaille sur quoi.
+- **En brigade** : qui a une tâche Claude en cours ou finie depuis moins de 5 minutes, et sur quel projet.
 - **Garde-manger** : cloner, créer ou lier un repo GitHub sans quitter le menu.
 - **Minuteur** : limites de l'abonnement Claude et état du Remote Control.
 

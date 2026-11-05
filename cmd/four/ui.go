@@ -40,7 +40,6 @@ type model struct {
 
 	sessions []Session
 	presence []Presence
-	online   map[string]bool
 	usage    Usage
 	details  map[string]Details
 	detAt    map[string]time.Time
@@ -78,7 +77,6 @@ type (
 	liveMsg struct {
 		ss []Session
 		pr []Presence
-		on map[string]bool
 	}
 	projectsMsg []*Project
 	detailsMsg  struct {
@@ -96,7 +94,7 @@ type (
 
 func newModel(start scr, popup bool, arg string) model {
 	m := model{scr: start, popup: popup, openArg: arg, details: map[string]Details{},
-		detAt: map[string]time.Time{}, prod: prodSet(), online: map[string]bool{}}
+		detAt: map[string]time.Time{}, prod: prodSet()}
 	m.filter.ph = "filtrer les projets…"
 	m.projects = loadProjectCache()
 	if m.projects == nil {
@@ -139,7 +137,7 @@ func loadProjectsCmd() tea.Cmd {
 
 func liveCmd() tea.Cmd {
 	return func() tea.Msg {
-		return liveMsg{ss: listSessions(), pr: readPresence(), on: onlineUsers()}
+		return liveMsg{ss: listSessions(), pr: readPresence()}
 	}
 }
 
@@ -355,7 +353,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case liveMsg:
-		m.sessions, m.presence, m.online = msg.ss, msg.pr, msg.on
+		m.sessions, m.presence = msg.ss, msg.pr
 		m.fix()
 		return m, nil
 

@@ -70,8 +70,9 @@ func (m model) header() Line {
 		left = append(left, S("   ◆ config à finir · c", cWarn))
 	}
 	var right []seg
+	now := time.Now()
 	for _, t := range teammates() {
-		if m.online[t] {
+		if firstActive(m.presence, t, now) != nil {
 			right = append(right, S("●", cOk), S(" "+t+" en ligne", cD))
 		} else {
 			right = append(right, S("○", cDD), S(" "+t+" hors ligne", cDD))
@@ -437,13 +438,18 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 			}
 			uc := userColor(t)
 			if len(mine) > 0 {
-				o := mine[0]
+				o, on := mine[0], firstActive(mine, t, time.Now())
+				if on != nil {
+					o = *on
+				}
 				st := map[string]string{"busy": "au four", "done": "cuit", "wait": "attend"}[o.State]
 				if st == "" {
 					st = "allumé"
 				}
-				c := cOk
-				if o.State == "wait" {
+				dot, c := "●", cOk
+				if on == nil {
+					dot, c = "○", cDD
+				} else if o.State == "wait" {
 					c = cWarn
 				}
 				extra := ""
@@ -451,24 +457,14 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 					extra = " (" + itoa(len(mine)) + " sessions)"
 				}
 				ls = append(ls, lr([]seg{S(" "+t, uc), S("  sur ce projet"+extra, cD)},
-					[]seg{S("●", c), S(" "+st+" · "+dur(o.Since)+" ", cD)}, iw))
+					[]seg{S(dot, c), S(" "+st+" · "+dur(o.Since)+" ", cD)}, iw))
 				continue
 			}
 			// Ailleurs ?
-			var elsewhere *Presence
-			for i := range m.presence {
-				if m.presence[i].User == t {
-					elsewhere = &m.presence[i]
-					break
-				}
-			}
-			switch {
-			case elsewhere != nil:
-				ls = append(ls, lr([]seg{S(" "+t, uc), S("  sur "+elsewhere.Project, cD)},
-					[]seg{S("●", cOk), S(" Claude · "+dur(elsewhere.Since)+" ", cD)}, iw))
-			case m.online[t]:
-				ls = append(ls, lr([]seg{S(" "+t, uc)}, []seg{S("●", cOk), S(" connecté, pas de Claude ", cD)}, iw))
-			default:
+			if e := firstActive(m.presence, t, time.Now()); e != nil {
+				ls = append(ls, lr([]seg{S(" "+t, uc), S("  sur "+e.Project, cD)},
+					[]seg{S("●", cOk), S(" Claude · "+dur(e.Since)+" ", cD)}, iw))
+			} else {
 				ls = append(ls, lr([]seg{S(" "+t, cD)}, []seg{S("○", cDD), S(" hors ligne ", cDD)}, iw))
 			}
 		}

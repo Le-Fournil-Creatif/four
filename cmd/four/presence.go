@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -127,15 +126,27 @@ func readPresence() []Presence {
 	return out
 }
 
-// Qui est connecté en SSH en ce moment (commande users).
-func onlineUsers() map[string]bool {
-	out, err := exec.Command("users").Output()
-	m := map[string]bool{}
-	if err != nil {
-		return m
+// Durée pendant laquelle une personne reste « en ligne » après la fin d'une tâche.
+const onlineGrace = 5 * time.Minute
+
+// Une tâche tourne, ou s'est arrêtée (terminée ou en attente d'une réponse) il y
+// a moins de onlineGrace. Une session ouverte sans tâche ne compte pas.
+func (p Presence) active(now time.Time) bool {
+	switch p.State {
+	case "busy":
+		return true
+	case "done", "wait":
+		return now.Sub(time.Unix(p.Since, 0)) < onlineGrace
 	}
-	for _, u := range strings.Fields(string(out)) {
-		m[u] = true
+	return false
+}
+
+// Première fiche active d'une personne : c'est elle qui la rend « en ligne ».
+func firstActive(list []Presence, user string, now time.Time) *Presence {
+	for i := range list {
+		if list[i].User == user && list[i].active(now) {
+			return &list[i]
+		}
 	}
-	return m
+	return nil
 }
