@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Logo de four : un four à pain avec une flamme">
+  <rect width="128" height="128" rx="28" fill="#1b1713"/>
+  <!-- Dôme -->
+  <path d="M20 100V68a44 44 0 0 1 88 0v32z" fill="#b9602f"/>
+  <path d="M20 68a44 44 0 0 1 88 0" fill="none" stroke="#e08a4a" stroke-width="4"/>
+  <!-- Briques -->
+  <g fill="none" stroke="#8f4722" stroke-width="2.5" stroke-linecap="round">
+    <path d="M64 24v12M37 34l7 10M91 34l-7 10M24 60l12 4M104 60l-12 4M22 84h13M93 84h13"/>
+  </g>
+  <!-- Bouche -->
+  <path d="M38 100V72a26 26 0 0 1 52 0v28z" fill="#1b1713"/>
+  <!-- Flamme -->
+  <path d="M64 56c3 11 16 17 16 31 0 8-7 13-16 13s-16-5-16-13c0-7 4-11 7-15 1 4 3 6 5 6 2-7-1-14 4-22z" fill="#f2a541"/>
+  <path d="M64 77c2 5 7 8 7 14 0 5-3 9-7 9s-7-4-7-9c0-6 5-8 7-14z" fill="#ffe0a3"/>
+  <!-- Sole -->
+  <rect x="12" y="100" width="104" height="9" rx="4.5" fill="#ece3d6"/>
+</svg>
