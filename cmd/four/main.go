@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,17 @@ func main() {
 		fmt.Print(statusLine(args[1:]))
 	case "_statusline":
 		statusLineCmd(os.Stdin)
+	case "_panel":
+		runPanel()
+	case "_panel-ensure":
+		panelEnsure(argAt(args, 1))
+	case "_panel-toggle":
+		panelToggle(argAt(args, 1))
+	case "_goto":
+		n, _ := strconv.Atoi(argAt(args, 1))
+		panelGoto(n, argAt(args, 2), argAt(args, 3))
+	case "_next":
+		panelNext(argAt(args, 1), argAt(args, 2))
 	case "--popup":
 		runTUI(scrDash, true, "")
 	case "setup", "config":
@@ -55,4 +67,11 @@ func main() {
 		}
 		runTUI(scrDash, false, args[0])
 	}
+}
+
+func argAt(args []string, i int) string {
+	if i < len(args) {
+		return args[i]
+	}
+	return ""
 }

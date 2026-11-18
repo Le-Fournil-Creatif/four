@@ -9,6 +9,7 @@
 ![Le menu de four, avec des projets fictifs](docs/screenshot.png)
 
 - **Au four** : plusieurs sessions par projet, avec `✓ cuit` et `◆ attend` visibles depuis n'importe où.
+- **Le passe** : à droite de chaque session, un panneau range vos sessions par urgence. <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>Tab</kbd> saute à la prochaine qui vous attend.
 - **En brigade** : qui a une tâche Claude en cours ou finie depuis moins de 5 minutes, et sur quel projet.
 - **Garde-manger** : cloner, créer ou lier un repo GitHub sans quitter le menu.
 - **Minuteur** : limites de l'abonnement Claude et état du Remote Control.
@@ -83,6 +84,10 @@ Dans une session, appuyez sur <kbd>Ctrl</kbd>+<kbd>b</kbd>, relâchez, puis appu
 |---|---|
 | `four` | Ouvrir le menu (<kbd>?</kbd> pour l'aide) |
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>Espace</kbd> | Ouvrir le menu par-dessus une session |
+| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>Tab</kbd> | Aller à la prochaine session à traiter (`◆ attend`, puis `✓ cuit`) |
+| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>1</kbd>…<kbd>9</kbd> | Aller à la session de ce numéro dans le panneau de droite |
+| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>→</kbd> | Entrer dans le panneau de droite : <kbd>↑</kbd> <kbd>↓</kbd> pour choisir, <kbd>Entrée</kbd> pour ouvrir, <kbd>Échap</kbd> pour revenir |
+| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>p</kbd> | Masquer ou réafficher le panneau de droite |
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>d</kbd> | Revenir au menu, Claude continue de tourner |
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>x</kbd> | Fermer la session |
 
@@ -103,6 +108,7 @@ Ces listes valent pour toute l'équipe.
 |---|---|
 | `Permission denied` dans `/srv/repos` | Reconnectez-vous en SSH pour activer le groupe `devs`. |
 | `Ctrl-b` `Espace` ne fait rien | Ce raccourci ne marche que dans une session. Dans le menu, vous y êtes déjà. |
+| Pas de panneau à droite | Il faut une fenêtre d'au moins 130 colonnes. S'il a été masqué, <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>p</kbd> le réaffiche. |
 | Les jauges affichent `– %` | Validez « Notifications » dans `four setup`, puis envoyez un message à Claude dans une nouvelle session. Elles restent vides sans abonnement Claude ou si vous gardez votre propre ligne d'état. |
 
 ## Désinstaller

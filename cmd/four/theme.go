@@ -22,6 +22,9 @@ const (
 	cBd      = "#4a3f35"
 	cAcc     = "#f2a541"
 	cSel     = "#30271f"
+	cHov     = "#3a3026" // panneau : survol à la souris
+	cHi      = "#4a3a26" // panneau : ligne en surbrillance (session courante ou curseur)
+	cHiD     = "#cfc3b4" // gris relevé sur cHi, pour rester lisible
 	cOk      = "#98c66e"
 	cWarn    = "#e9c45c"
 	cErr     = "#f07f5a"

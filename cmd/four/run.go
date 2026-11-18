@@ -4,6 +4,7 @@ package main
 // (hooks de Claude), four _status (barre tmux).
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -120,7 +121,12 @@ func runSession() int {
 
 func notify(kind string) {
 	// L'entrée JSON du hook : la lire sans jamais bloquer.
-	go func() { _, _ = io.Copy(io.Discard, os.Stdin) }()
+	in := make(chan []byte, 1)
+	go func() {
+		b, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+		in <- b
+		_, _ = io.Copy(io.Discard, os.Stdin)
+	}()
 	sess := os.Getenv("FOUR_SESSION")
 	if sess == "" || !insideFour() {
 		return // pas une session four : rien à faire
@@ -128,15 +134,42 @@ func notify(kind string) {
 	switch kind {
 	case "clear":
 		writeMark(sess, "busy")
+		clearWaitMsg(sess)
 		setPresenceState(me, sess, "busy")
 	case "done", "wait":
 		writeMark(sess, kind)
+		if kind == "wait" {
+			var h struct {
+				Message string `json:"message"`
+			}
+			select {
+			case b := <-in:
+				_ = json.Unmarshal(b, &h)
+			case <-time.After(300 * time.Millisecond):
+			}
+			writeWaitMsg(sess, waitText(h.Message))
+		} else {
+			clearWaitMsg(sess)
+		}
 		setPresenceState(me, sess, kind)
 		alertOthers(sess, kind)
 	default:
 		return
 	}
 	refreshClients()
+}
+
+// Le message de la notification de Claude, en français quand on le connaît.
+func waitText(msg string) string {
+	msg = strings.Join(strings.Fields(msg), " ")
+	const perm = "Claude needs your permission to use "
+	switch {
+	case strings.HasPrefix(msg, perm):
+		return "Autoriser " + strings.TrimSpace(strings.TrimPrefix(msg, perm)) + " ?"
+	case strings.Contains(strings.ToLower(msg), "waiting for your input"):
+		return "attend ta réponse"
+	}
+	return msg
 }
 
 type client struct{ name, session, tty string }

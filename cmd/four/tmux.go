@@ -28,7 +28,10 @@ type Session struct {
 	Mark                       string // busy | done | wait
 	MarkTime                   int64
 	Seen                       bool
-	Remote                     bool // Remote Control connecté
+	Remote                     bool   // Remote Control connecté
+	Pane                       string // pane de Claude (%N) ; vide s'il ne reste que le panneau
+	PanelPane                  string // pane du panneau des sessions, s'il est affiché
+	WinW                       int    // largeur de la fenêtre
 }
 
 func (s Session) Running() bool {
@@ -122,7 +125,24 @@ set -g status-right '#(%[1]s _status right #{q:session_name} #{q:pane_current_pa
 bind Space display-popup -E -w 90%% -h 85%% -T ' four ' '%[1]s --popup'
 bind C-Space display-popup -E -w 90%% -h 85%% -T ' four ' '%[1]s --popup'
 bind x confirm-before -p 'fermer la session #S ? (y/n)' kill-session
-`, b, Socket)
+bind Left select-pane -L
+bind Right select-pane -R
+bind Tab run-shell -b '%[1]s _next #{q:client_name} #{q:session_name}'
+bind p run-shell -b '%[1]s _panel-toggle #{q:client_name}'
+set-hook -g client-attached[42] "run-shell -b '%[1]s _panel-ensure #{q:session_name}'"
+set-hook -g client-session-changed[42] "run-shell -b '%[1]s _panel-ensure #{q:session_name}'"
+set-hook -g client-resized[42] "run-shell -b '%[1]s _panel-ensure #{q:session_name}'"
+`, b, Socket) + gotoBinds(b)
+}
+
+// Ctrl-b 1…9 : les numéros du panneau (four n'a qu'une fenêtre par session,
+// select-window ne sert pas).
+func gotoBinds(b string) string {
+	var s strings.Builder
+	for n := 1; n <= 9; n++ {
+		fmt.Fprintf(&s, "bind %d run-shell -b '%s _goto %d #{q:client_name} #{q:session_name}'\n", n, b, n)
+	}
+	return s.String()
 }
 
 // Écrit la configuration si elle a changé ; la recharge si le serveur tourne.
@@ -138,29 +158,69 @@ func writeConf() {
 
 func serverRunning() bool { return tmuxCmd("has-session").Run() == nil }
 
+// Un pane par ligne (list-panes -a) : la commande de départ, en dernier,
+// distingue le panneau des sessions du pane de Claude.
 const fmtSess = "#{session_name}\x1f#{@four_project}\x1f#{@four_dir}\x1f#{@four_letter}\x1f" +
-	"#{session_created}\x1f#{session_activity}\x1f#{session_attached}\x1f#{pane_current_command}\x1f#{pane_title}\x1f#{pane_pid}"
+	"#{session_created}\x1f#{session_activity}\x1f#{session_attached}\x1f#{pane_current_command}\x1f#{pane_title}\x1f#{pane_pid}\x1f" +
+	"#{pane_id}\x1f#{window_active}#{pane_active}\x1f#{window_width}\x1f#{pane_start_command}"
 
+func isPanelCmd(start string) bool { return strings.Contains(start, " _panel") }
+
+// Les sessions four, panneau à part : Cmd, Title et Pane sont ceux de Claude,
+// même quand le panneau a le focus.
 func listSessions() []Session {
-	out, err := tmuxOut("list-sessions", "-F", fmtSess)
+	all, _ := scanSessions()
+	ss := all[:0]
+	for _, s := range all {
+		if s.Pane != "" {
+			ss = append(ss, s)
+		}
+	}
+	return ss
+}
+
+// Comme listSessions, avec les sessions où il ne reste que le panneau, et
+// l'erreur de tmux (le panneau ne doit pas se fermer sur une erreur passagère).
+func scanSessions() ([]Session, error) {
+	out, err := tmuxOut("list-panes", "-a", "-F", fmtSess)
 	if err != nil || out == "" {
-		return nil
+		return nil, err
 	}
 	var ss []Session
+	idx := map[string]int{}
+	rank := map[string]int{}
 	remote := remoteParents(filepath.Join(home, ".claude", "sessions"))
 	for _, l := range strings.Split(out, "\n") {
-		f := strings.Split(l, "\x1f")
-		if len(f) < 10 || f[1] == "" {
+		f := strings.SplitN(l, "\x1f", 14)
+		if len(f) < 14 || f[1] == "" {
 			continue
 		}
-		s := Session{Name: f[0], Project: f[1], Dir: f[2], Letter: f[3], Cmd: f[7], Title: cleanTitle(f[8])}
-		s.Created, _ = strconv.ParseInt(f[4], 10, 64)
-		s.Activity, _ = strconv.ParseInt(f[5], 10, 64)
-		s.Attached, _ = strconv.Atoi(f[6])
-		s.Mark, s.MarkTime, s.Seen = readMark(s.Name)
+		i, ok := idx[f[0]]
+		if !ok {
+			s := Session{Name: f[0], Project: f[1], Dir: f[2], Letter: f[3]}
+			s.Created, _ = strconv.ParseInt(f[4], 10, 64)
+			s.Activity, _ = strconv.ParseInt(f[5], 10, 64)
+			s.Attached, _ = strconv.Atoi(f[6])
+			s.Mark, s.MarkTime, s.Seen = readMark(s.Name)
+			ss = append(ss, s)
+			i = len(ss) - 1
+			idx[f[0]] = i
+		}
+		s := &ss[i]
+		if isPanelCmd(f[13]) {
+			s.PanelPane = f[10]
+			continue
+		}
+		// Le pane actif de la fenêtre active d'abord, sinon le premier.
+		r := map[string]int{"11": 3, "10": 2}[f[11]] + 1
+		if r <= rank[s.Name] {
+			continue
+		}
+		rank[s.Name] = r
+		s.Cmd, s.Title, s.Pane = f[7], cleanTitle(f[8]), f[10]
+		s.WinW, _ = strconv.Atoi(f[12])
 		panePid, _ := strconv.Atoi(f[9])
 		s.Remote = remote[panePid]
-		ss = append(ss, s)
 	}
 	sort.Slice(ss, func(i, j int) bool {
 		if ss[i].Project != ss[j].Project {
@@ -168,7 +228,7 @@ func listSessions() []Session {
 		}
 		return strings.Index(letters, ss[i].Letter) < strings.Index(letters, ss[j].Letter)
 	})
-	return ss
+	return ss, nil
 }
 
 // Titre que Claude donne au terminal (« ✳ Refonte du panier ») sans l'icône.
@@ -292,9 +352,13 @@ func killSession(name string) error {
 	return tmuxCmd("kill-session", "-t", "="+name).Run()
 }
 
-// Claude a été quitté et le panneau est revenu au shell : on le relance.
-func relaunch(name string) error {
-	return tmuxCmd("send-keys", "-t", "="+name+":", "exec "+shQuote(Bin)+" _run", "Enter").Run()
+// Claude a été quitté et son pane est revenu au shell : on le relance.
+func relaunch(s Session) error {
+	t := s.Pane
+	if t == "" {
+		t = "=" + s.Name + ":"
+	}
+	return tmuxCmd("send-keys", "-t", t, "exec "+shQuote(Bin)+" _run", "Enter").Run()
 }
 
 // ── Marques : où en est Claude dans chaque session ─────────────────────
@@ -335,7 +399,31 @@ func markSeen(s string) {
 	}
 }
 
-func clearMark(s string) { _ = os.Remove(markFile(s)) }
+func clearMark(s string) {
+	_ = os.Remove(markFile(s))
+	clearWaitMsg(s)
+}
+
+// Ce que Claude demande quand il attend (« Autoriser Bash ? »), pour le panneau.
+func waitMsgFile(s string) string { return markFile(s) + ".msg" }
+
+func writeWaitMsg(s, msg string) {
+	if msg == "" {
+		clearWaitMsg(s)
+		return
+	}
+	_ = os.WriteFile(waitMsgFile(s), []byte(msg+"\n"), 0o644)
+}
+
+func readWaitMsg(s string) string {
+	b, err := os.ReadFile(waitMsgFile(s))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func clearWaitMsg(s string) { _ = os.Remove(waitMsgFile(s)) }
 
 // Ajouté au groupe devs depuis la connexion SSH : le processus n'a pas encore
 // le groupe, donc /srv/repos est en lecture seule. On se relance via sg, qui

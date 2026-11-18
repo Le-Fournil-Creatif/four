@@ -696,7 +696,7 @@ func (m *model) attachSession(s Session) tea.Cmd {
 	label := s.Project + " · " + s.Letter
 	msg := label
 	if !s.Running() && s.Shell() {
-		_ = relaunch(s.Name)
+		_ = relaunch(s)
 		msg += " · Claude relancé"
 	} else if s.Running() {
 		msg += " · Claude tourne"
