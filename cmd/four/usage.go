@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,59 @@ type Usage struct {
 	Has7d   bool      `json:"has7d"`
 	Pct7d   float64   `json:"pct7d"`
 	Reset7d time.Time `json:"reset7d"`
+}
+
+// Les quotas des trois agents, pour le menu et la ligne d'état de tmux.
+type Quotas struct{ Claude, Codex, Gemini Usage }
+
+func cachedQuotas() Quotas {
+	return Quotas{Claude: cachedUsage(), Codex: codexUsage(), Gemini: cachedGemini()}
+}
+
+// Un agent sans chiffres cette fois garde les précédents.
+func (q Quotas) merge(n Quotas) Quotas {
+	if n.Claude.OK {
+		q.Claude = n.Claude
+	}
+	if n.Codex.OK {
+		q.Codex = n.Codex
+	}
+	if n.Gemini.OK {
+		q.Gemini = n.Gemini
+	}
+	return q
+}
+
+// La fenêtre la plus entamée d'un agent, pour la ligne d'état de tmux.
+func (u Usage) worst() float64 {
+	p := 0.0
+	if u.Has5h {
+		p = u.Pct5h
+	}
+	if u.Has7d && u.Pct7d > p {
+		p = u.Pct7d
+	}
+	return p
+}
+
+// En bas de chaque session : « Claude 42 % · Codex 10 % · Gemini 5 % », la
+// fenêtre la plus entamée de chacun (rouge à partir de 85 %).
+func quotaStatus(q Quotas) string {
+	var parts []string
+	for _, a := range []struct {
+		name string
+		u    Usage
+	}{{"Claude", q.Claude}, {"Codex", q.Codex}, {"Gemini", q.Gemini}} {
+		if !a.u.OK {
+			continue
+		}
+		p := a.u.worst()
+		parts = append(parts, "#[fg="+cD+"]"+a.name+" #[fg="+usageColor(p)+"]"+itoa(int(p+0.5))+" %")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "#[bg=" + cBar2Bg + "] " + strings.Join(parts, "#[fg="+cDD+"] · ") + " #[default]"
 }
 
 func usageCache() string { return filepath.Join(stateDir(), "usage.json") }

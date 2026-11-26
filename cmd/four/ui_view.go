@@ -84,12 +84,16 @@ func (m model) header() Line {
 	right = append(right, B(me, userColor(me)), Sp(5))
 	right = append(right, usageSegs(m.usage)...)
 	right = append(right, Sp(1))
-	// Étroit : on lâche d'abord les coéquipiers, puis les jauges, puis l'usage.
+	// Étroit : on lâche d'abord les coéquipiers, puis les jauges, puis Codex et
+	// Gemini, puis l'usage.
 	if segsW(left)+segsW(right)+1 > m.w {
 		right = append(append([]seg{B(me, userColor(me)), Sp(3)}, usageSegs(m.usage)...), Sp(1))
 	}
 	if segsW(left)+segsW(right)+1 > m.w {
 		right = append(append([]seg{B(me, userColor(me)), Sp(3)}, usageCompact(m.usage)...), Sp(1))
+	}
+	if segsW(left)+segsW(right)+1 > m.w {
+		right = append(append([]seg{B(me, userColor(me)), Sp(3)}, usageCompact(Quotas{Claude: m.usage.Claude})...), Sp(1))
 	}
 	if segsW(left)+segsW(right)+1 > m.w {
 		right = []seg{B(me, userColor(me)), Sp(1)}

@@ -41,7 +41,7 @@ type model struct {
 
 	sessions []Session
 	presence []Presence
-	usage    Usage
+	usage    Quotas
 	details  map[string]Details
 	detAt    map[string]time.Time
 	prod     map[string]bool
@@ -85,7 +85,7 @@ type (
 		dir string
 		d   Details
 	}
-	usageMsg Usage
+	usageMsg Quotas
 	openMsg  struct {
 		name, msg string
 		err       error
@@ -103,7 +103,7 @@ func newModel(start scr, popup bool, arg string) model {
 		m.projects = scanProjects()
 	}
 	sortProjects(m.projects)
-	m.usage = cachedUsage()
+	m.usage = cachedQuotas()
 	m.sessions = listSessions()
 	m.presence = readPresence()
 	m.missing = quickSetupMissing()
@@ -143,7 +143,12 @@ func liveCmd() tea.Cmd {
 	}
 }
 
-func usageCmd() tea.Cmd { return func() tea.Msg { return usageMsg(cachedUsage()) } }
+func usageCmd() tea.Cmd {
+	return func() tea.Msg {
+		refreshGemini()
+		return usageMsg(cachedQuotas())
+	}
+}
 
 func detailsCmd(dir string) tea.Cmd {
 	return func() tea.Msg { return detailsMsg{dir: dir, d: loadDetails(dir)} }
@@ -391,9 +396,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case usageMsg:
-		if Usage(msg).OK {
-			m.usage = Usage(msg)
-		}
+		m.usage = m.usage.merge(Quotas(msg))
 		return m, nil
 
 	case toastMsg:

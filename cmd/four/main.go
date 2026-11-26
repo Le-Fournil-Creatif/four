@@ -45,6 +45,8 @@ func main() {
 		fmt.Print(statusLine(args[1:]))
 	case "_statusline":
 		statusLineCmd(os.Stdin)
+	case "_gemini-usage":
+		geminiUsageCmd()
 	case "_panel":
 		runPanel()
 	case "_panel-ensure":

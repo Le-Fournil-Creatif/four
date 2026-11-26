@@ -308,6 +308,8 @@ func statusLine(args []string) string {
 			b.WriteString("#[bg=" + cBar2Bg + ",fg=" + cD + "]+" + itoa(len(notes)-1) + " #[default]")
 		}
 	}
+	refreshGeminiBackground()
+	b.WriteString(quotaStatus(cachedQuotas()))
 	b.WriteString(" ctrl-b espace = menu ")
 	return b.String()
 }

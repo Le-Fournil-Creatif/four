@@ -12,7 +12,7 @@
 - **Le passe** : à droite de chaque session, un panneau range vos sessions par urgence. <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>Tab</kbd> saute à la prochaine qui vous attend.
 - **En brigade** : qui a une tâche Claude en cours ou finie depuis moins de 5 minutes, et sur quel projet.
 - **Garde-manger** : cloner, créer ou lier un repo GitHub sans quitter le menu.
-- **Minuteur** : limites de l'abonnement Claude et état du Remote Control.
+- **Minuteur** : limites des abonnements Claude, Codex et Gemini (en haut du menu et en bas de chaque session) et état du Remote Control.
 
 ## four est-il fait pour vous ?
 

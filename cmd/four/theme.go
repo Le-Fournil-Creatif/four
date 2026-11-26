@@ -424,8 +424,9 @@ func usageBar(label string, pct float64, ok bool) []seg {
 		P(" " + itoa(int(pct+0.5)) + " %")}
 }
 
-func usageSegs(u Usage) []seg {
-	return append(append(usageBar("Claude 5h", u.Pct5h, u.Has5h), Sp(3)), usageBar("7j", u.Pct7d, u.Has7d)...)
+// Claude toujours ; Codex et Gemini dès qu'on a leurs chiffres.
+func usageSegs(q Quotas) []seg {
+	return quotaSegs(q, usageBar, 5, 3)
 }
 
 // usageNum : un pourcentage seul, pour les en-têtes étroits.
@@ -436,6 +437,18 @@ func usageNum(label string, pct float64, ok bool) []seg {
 	return []seg{S(label+" ", cD), S(itoa(int(pct+0.5))+" %", usageColor(pct))}
 }
 
-func usageCompact(u Usage) []seg {
-	return append(append(usageNum("Claude 5h", u.Pct5h, u.Has5h), Sp(2)), usageNum("7j", u.Pct7d, u.Has7d)...)
+func usageCompact(q Quotas) []seg {
+	return quotaSegs(q, usageNum, 4, 2)
+}
+
+func quotaSegs(q Quotas, f func(string, float64, bool) []seg, gap, inner int) []seg {
+	out := append(append(f("Claude 5h", q.Claude.Pct5h, q.Claude.Has5h), Sp(inner)), f("7j", q.Claude.Pct7d, q.Claude.Has7d)...)
+	if q.Codex.OK {
+		out = append(append(append(append(out, Sp(gap)), f("Codex 5h", q.Codex.Pct5h, q.Codex.Has5h)...), Sp(inner)),
+			f("7j", q.Codex.Pct7d, q.Codex.Has7d)...)
+	}
+	if q.Gemini.OK {
+		out = append(append(out, Sp(gap)), f("Gemini", q.Gemini.Pct5h, q.Gemini.Has5h)...)
+	}
+	return out
 }
