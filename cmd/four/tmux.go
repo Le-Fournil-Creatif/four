@@ -22,6 +22,7 @@ const letters = "abcdefghijklmoprstuvwyz" // ni n, ni q, ni x : touches du menu
 
 type Session struct {
 	Name, Project, Dir, Letter string
+	Agent                      string // claude | codex | agy
 	Cmd, Title                 string
 	Created, Activity          int64
 	Attached                   int
@@ -29,14 +30,14 @@ type Session struct {
 	MarkTime                   int64
 	Seen                       bool
 	Remote                     bool   // Remote Control connecté
-	Pane                       string // pane de Claude (%N) ; vide s'il ne reste que le panneau
+	Pane                       string // pane de l'agent (%N) ; vide s'il ne reste que le panneau
 	PanelPane                  string // pane du panneau des sessions, s'il est affiché
 	WinW                       int    // largeur de la fenêtre
 }
 
 func (s Session) Running() bool {
 	switch s.Cmd {
-	case "four", "claude", "node":
+	case "four", "claude", "codex", "agy", "node":
 		return true
 	}
 	return false
@@ -129,6 +130,7 @@ bind Left select-pane -L
 bind Right select-pane -R
 bind Tab run-shell -b '%[1]s _next #{q:client_name} #{q:session_name}'
 bind p run-shell -b '%[1]s _panel-toggle #{q:client_name}'
+bind P run-shell -b '%[1]s _panel-narrow #{q:client_name}'
 set-hook -g client-attached[42] "run-shell -b '%[1]s _panel-ensure #{q:session_name}'"
 set-hook -g client-session-changed[42] "run-shell -b '%[1]s _panel-ensure #{q:session_name}'"
 set-hook -g client-resized[42] "run-shell -b '%[1]s _panel-ensure #{q:session_name}'"
@@ -159,14 +161,14 @@ func writeConf() {
 func serverRunning() bool { return tmuxCmd("has-session").Run() == nil }
 
 // Un pane par ligne (list-panes -a) : la commande de départ, en dernier,
-// distingue le panneau des sessions du pane de Claude.
+// distingue le panneau des sessions du pane de l'agent.
 const fmtSess = "#{session_name}\x1f#{@four_project}\x1f#{@four_dir}\x1f#{@four_letter}\x1f" +
 	"#{session_created}\x1f#{session_activity}\x1f#{session_attached}\x1f#{pane_current_command}\x1f#{pane_title}\x1f#{pane_pid}\x1f" +
-	"#{pane_id}\x1f#{window_active}#{pane_active}\x1f#{window_width}\x1f#{pane_start_command}"
+	"#{pane_id}\x1f#{window_active}#{pane_active}\x1f#{window_width}\x1f#{@four_agent}\x1f#{pane_start_command}"
 
 func isPanelCmd(start string) bool { return strings.Contains(start, " _panel") }
 
-// Les sessions four, panneau à part : Cmd, Title et Pane sont ceux de Claude,
+// Les sessions four, panneau à part : Cmd, Title et Pane sont ceux de l'agent,
 // même quand le panneau a le focus.
 func listSessions() []Session {
 	all, _ := scanSessions()
@@ -191,13 +193,13 @@ func scanSessions() ([]Session, error) {
 	rank := map[string]int{}
 	remote := remoteParents(filepath.Join(home, ".claude", "sessions"))
 	for _, l := range strings.Split(out, "\n") {
-		f := strings.SplitN(l, "\x1f", 14)
-		if len(f) < 14 || f[1] == "" {
+		f := strings.SplitN(l, "\x1f", 15)
+		if len(f) < 15 || f[1] == "" {
 			continue
 		}
 		i, ok := idx[f[0]]
 		if !ok {
-			s := Session{Name: f[0], Project: f[1], Dir: f[2], Letter: f[3]}
+			s := Session{Name: f[0], Project: f[1], Dir: f[2], Letter: f[3], Agent: normAgent(f[13])}
 			s.Created, _ = strconv.ParseInt(f[4], 10, 64)
 			s.Activity, _ = strconv.ParseInt(f[5], 10, 64)
 			s.Attached, _ = strconv.Atoi(f[6])
@@ -207,7 +209,7 @@ func scanSessions() ([]Session, error) {
 			idx[f[0]] = i
 		}
 		s := &ss[i]
-		if isPanelCmd(f[13]) {
+		if isPanelCmd(f[14]) {
 			s.PanelPane = f[10]
 			continue
 		}
@@ -218,6 +220,9 @@ func scanSessions() ([]Session, error) {
 		}
 		rank[s.Name] = r
 		s.Cmd, s.Title, s.Pane = f[7], cleanTitle(f[8]), f[10]
+		if strings.EqualFold(s.Title, filepath.Base(s.Dir)) {
+			s.Title = "" // Codex met le nom du dossier : rien de plus que le projet
+		}
 		s.WinW, _ = strconv.Atoi(f[12])
 		panePid, _ := strconv.Atoi(f[9])
 		s.Remote = remote[panePid]
@@ -231,13 +236,13 @@ func scanSessions() ([]Session, error) {
 	return ss, nil
 }
 
-// Titre que Claude donne au terminal (« ✳ Refonte du panier ») sans l'icône.
+// Titre que l'agent donne au terminal (« ✳ Refonte du panier ») sans l'icône.
 func cleanTitle(t string) string {
 	t = strings.TrimLeftFunc(t, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 	t = strings.TrimSpace(t)
 	h, _ := os.Hostname()
 	switch strings.ToLower(t) {
-	case "", "claude", "claude code", strings.ToLower(h), "bash", "four":
+	case "", "claude", "claude code", "codex", "agy", "antigravity", strings.ToLower(h), "bash", "four":
 		return ""
 	}
 	return t
@@ -263,20 +268,22 @@ func freeLetter(ss []Session, project string) string {
 	return ""
 }
 
-// Nouvelle session : Claude démarre dans le projet (via four _run, qui tient
-// la présence à jour et laisse un shell quand Claude s'arrête).
-func newSession(p *Project, letter string, prod bool) (string, error) {
+// Nouvelle session : l'agent (Claude ou Codex) démarre dans le projet (via
+// four _run, qui tient la présence à jour et laisse un shell quand il s'arrête).
+func newSession(p *Project, letter, agent string, prod bool) (string, error) {
 	name := sessName(p.Name, letter)
+	agent = normAgent(agent)
 	writeConf()
 	args := tmuxArgs("new-session", "-d", "-s", name, "-c", p.Dir,
 		"-e", "FOUR_PROJECT="+p.Name, "-e", "FOUR_DIR="+p.Dir,
 		"-e", "FOUR_SESSION="+name, "-e", "FOUR_LETTER="+letter,
+		"-e", "FOUR_AGENT="+agent,
 		shQuote(Bin)+" _run")
 	var c *exec.Cmd
 	g := lookupGroup(GroupName)
 	if g.ok && g.has(me) && !procHasGid(g.gid) && !serverRunning() {
 		// Ajouté au groupe devs depuis la connexion : le serveur tmux le prend
-		// quand même, sinon Claude ne pourrait pas écrire dans /srv/repos.
+		// quand même, sinon l'agent ne pourrait pas écrire dans /srv/repos.
 		q := make([]string, len(args)+1)
 		q[0] = "tmux"
 		for i, a := range args {
@@ -290,14 +297,14 @@ func newSession(p *Project, letter string, prod bool) (string, error) {
 	if out, err := c.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("tmux : %s", firstLine(string(out)))
 	}
-	if err := decorate(name, p.Name, p.Dir, letter, prod); err != nil {
+	if err := decorate(name, p.Name, p.Dir, letter, agent, prod); err != nil {
 		_ = tmuxCmd("kill-session", "-t", "="+name).Run()
 		return "", fmt.Errorf("tmux : %v", err)
 	}
 	return name, nil
 }
 
-func decorate(name, project, dir, letter string, prod bool) error {
+func decorate(name, project, dir, letter, agent string, prod bool) error {
 	pc := projColor(project)
 	pr := ""
 	if prod {
@@ -308,6 +315,7 @@ func decorate(name, project, dir, letter string, prod bool) error {
 		"set-option", "-t", t, "@four_project", project, ";",
 		"set-option", "-t", t, "@four_dir", dir, ";",
 		"set-option", "-t", t, "@four_letter", letter, ";",
+		"set-option", "-t", t, "@four_agent", agent, ";",
 		"set-option", "-t", t, "@four_prod", pr, ";",
 		"set-option", "-t", t, "@four_color", pc, ";",
 		"set-option", "-t", t, "@four_dark", darken(pc, 0.72), ";",
@@ -352,7 +360,8 @@ func killSession(name string) error {
 	return tmuxCmd("kill-session", "-t", "="+name).Run()
 }
 
-// Claude a été quitté et son pane est revenu au shell : on le relance.
+// L'agent a été quitté et son pane est revenu au shell : on le relance (le
+// shell a gardé FOUR_AGENT, four _run relance le même agent).
 func relaunch(s Session) error {
 	t := s.Pane
 	if t == "" {
@@ -361,7 +370,7 @@ func relaunch(s Session) error {
 	return tmuxCmd("send-keys", "-t", t, "exec "+shQuote(Bin)+" _run", "Enter").Run()
 }
 
-// ── Marques : où en est Claude dans chaque session ─────────────────────
+// ── Marques : où en est l'agent dans chaque session ────────────────────
 
 func markFile(s string) string { return filepath.Join(markDir(), s) }
 
@@ -404,7 +413,7 @@ func clearMark(s string) {
 	clearWaitMsg(s)
 }
 
-// Ce que Claude demande quand il attend (« Autoriser Bash ? »), pour le panneau.
+// Ce que l'agent demande quand il attend (« Autoriser Bash ? »), pour le panneau.
 func waitMsgFile(s string) string { return markFile(s) + ".msg" }
 
 func writeWaitMsg(s, msg string) {

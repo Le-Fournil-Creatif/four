@@ -62,6 +62,8 @@ sudo usermod -aG devs "$USER"
 | Identité git | Remplie depuis votre compte GitHub. |
 | Claude | Installe Claude Code si besoin, puis vous connecte à votre compte Claude. |
 | Notifications | Ajoute des hooks et une ligne d'état dans `~/.claude/settings.json`. Claude Code masque alors la plupart de ses rappels de raccourcis. |
+| Codex | Facultatif, <kbd>s</kbd> pour passer. Installe [Codex](https://developers.openai.com/codex) d'OpenAI, vous connecte à votre compte ChatGPT par un code, puis ajoute et approuve les hooks de four dans `~/.codex/hooks.json`. |
+| Gemini | Facultatif, <kbd>s</kbd> pour passer. Gemini passe par [Antigravity](https://antigravity.google) (`agy`). S'il est installé pour votre compte, lance `agy` pour vous connecter à votre compte Google, puis ajoute le hook `four` dans `~/.gemini/config/hooks.json` (les autres hooks restent). |
 
 **3. Enfournez votre premier projet :** tapez `four`, puis <kbd>a</kbd>. Partez d'un repo GitHub ou d'un nouveau projet. Claude démarre dedans.
 
@@ -78,6 +80,8 @@ Si votre serveur refuse les mots de passe en SSH, ajoutez aussi sa clé publique
 
 ## Aux fourneaux
 
+Dans le menu, <kbd>Entrée</kbd> ouvre un projet, <kbd>n</kbd> y lance une nouvelle session en demandant l'agent : Claude, Codex ou Gemini. Les agents peuvent travailler sur le même projet : chaque session affiche le sien, et `✓ cuit`, `◆ attend` et « en brigade » marchent pour tous, sauf `◆ attend` pour Gemini, qui ne signale pas ses demandes d'autorisation. Les jauges de l'abonnement et le Remote Control restent propres à Claude.
+
 Dans une session, appuyez sur <kbd>Ctrl</kbd>+<kbd>b</kbd>, relâchez, puis appuyez sur la touche suivante.
 
 | Touches | Action |
@@ -88,16 +92,17 @@ Dans une session, appuyez sur <kbd>Ctrl</kbd>+<kbd>b</kbd>, relâchez, puis appu
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>1</kbd>…<kbd>9</kbd> | Aller à la session de ce numéro dans le panneau de droite |
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>→</kbd> | Entrer dans le panneau de droite : <kbd>↑</kbd> <kbd>↓</kbd> pour choisir, <kbd>Entrée</kbd> pour ouvrir, <kbd>Échap</kbd> pour revenir |
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>p</kbd> | Masquer ou réafficher le panneau de droite |
-| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>d</kbd> | Revenir au menu, Claude continue de tourner |
+| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>P</kbd> | Rétrécir ou élargir le panneau de droite |
+| <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>d</kbd> | Revenir au menu, l'agent continue de tourner |
 | <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>x</kbd> | Fermer la session |
 
 ## Le thermostat
 
-Par défaut, Claude demande avant d'agir. Deux listes partagées changent ce comportement, avec un projet par ligne :
+Par défaut, Claude, Codex et Gemini demandent avant d'agir. Deux listes partagées changent ce comportement, avec un projet par ligne :
 
 | Fichier | Effet |
 |---|---|
-| `/srv/repos/.four/auto` | Lance Claude avec `--dangerously-skip-permissions`, donc **sans aucune confirmation**. `*` vaut pour tous les projets. |
+| `/srv/repos/.four/auto` | Lance Claude avec `--dangerously-skip-permissions`, Codex avec `--dangerously-bypass-approvals-and-sandbox` et Gemini avec `--dangerously-skip-permissions`, donc **sans aucune confirmation** (et sans bac à sable pour Codex). `*` vaut pour tous les projets. |
 | `/srv/repos/.four/prod` | Affiche `▲ prod` et garde toujours les confirmations, même avec `*`. |
 
 Ces listes valent pour toute l'équipe.
@@ -109,6 +114,7 @@ Ces listes valent pour toute l'équipe.
 | `Permission denied` dans `/srv/repos` | Reconnectez-vous en SSH pour activer le groupe `devs`. |
 | `Ctrl-b` `Espace` ne fait rien | Ce raccourci ne marche que dans une session. Dans le menu, vous y êtes déjà. |
 | Pas de panneau à droite | Il faut une fenêtre d'au moins 130 colonnes. S'il a été masqué, <kbd>Ctrl</kbd>+<kbd>b</kbd> puis <kbd>p</kbd> le réaffiche. |
+| Pas de `✓ cuit` ni de `◆ attend` sur une session Codex | Relancez « Codex » dans `four setup` : Codex n'exécute un hook qu'une fois approuvé, et une modification de `~/.codex/hooks.json` peut retirer l'approbation. Dans le shell d'une session, relancez Codex avec `codex --no-daemon`, comme le fait four. |
 | Les jauges affichent `– %` | Validez « Notifications » dans `four setup`, puis envoyez un message à Claude dans une nouvelle session. Elles restent vides sans abonnement Claude ou si vous gardez votre propre ligne d'état. |
 
 ## Désinstaller
@@ -121,7 +127,7 @@ sudo rm /usr/local/bin/four
 rm -rf ~/.cache/four
 ```
 
-Retirez ensuite de `~/.claude/settings.json` les hooks `four _notify` et la ligne d'état `four _statusline`.
+Retirez ensuite de `~/.claude/settings.json` les hooks `four _notify` et la ligne d'état `four _statusline`, et de `~/.codex/hooks.json` les hooks `four _notify` si vous avez configuré Codex, et de `~/.gemini/config/hooks.json` le hook `four` pour Gemini.
 
 ## Pour aller plus loin
 

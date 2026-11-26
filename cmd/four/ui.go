@@ -22,6 +22,7 @@ const (
 	scrSteps
 	scrSetup
 	scrConfirm
+	scrAgent
 )
 
 type model struct {
@@ -55,6 +56,7 @@ type model struct {
 	spin    int
 
 	confirm confirmState
+	pick    pickState
 	add     addState
 	gh      ghState
 	nw      newState
@@ -301,8 +303,8 @@ func (m *model) fix() {
 		m.off = 0
 	}
 	ns := len(m.sessionsOf(m.sel()))
-	if m.scur > ns {
-		m.scur = ns
+	if last := ns + len(newAgents()) - 1; m.scur > last {
+		m.scur = last
 	}
 }
 
@@ -450,6 +452,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case scrConfirm:
 		return m.updateConfirm(msg)
+	case scrAgent:
+		return m.updatePick(msg)
 	case scrAdd:
 		return m.updateAdd(msg)
 	case scrGitHub:
@@ -531,7 +535,7 @@ func (m model) keyDash(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus, m.scur = 1, 0
 		}
 	case "n":
-		nc := m.startNew(m.sel(), false)
+		nc := m.pickAgent(m.sel())
 		return m, nc
 	case "a":
 		m.add = addState{}
@@ -574,25 +578,25 @@ func (m model) keySessions(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scur--
 		}
 	case "down", "j":
-		if m.scur < len(ss) {
+		if m.scur < len(ss)+len(newAgents())-1 {
 			m.scur++
 		}
 	case "enter":
 		if m.scur >= len(ss) {
-			nc := m.startNew(p, false)
+			nc := m.startNew(p, newAgentAt(m.scur-len(ss)), false)
 			return m, nc
 		}
 		nc := m.attachSession(ss[m.scur])
 		return m, nc
 	case "n":
-		nc := m.startNew(p, false)
+		nc := m.pickAgent(p)
 		return m, nc
 	case "x":
 		if m.scur < len(ss) {
 			t := ss[m.scur]
 			m.confirm = confirmState{
 				title: "Fermer la session " + p.Name + " · " + t.Letter + " ?",
-				lines: []string{"Claude s'arrête, la conversation reste dans son historique (claude --resume)."},
+				lines: []string{agentLabel(t.Agent) + " s'arrête, la conversation reste dans son historique (" + agentResume(t.Agent) + ")."},
 				yes: func(m *model) tea.Cmd {
 					if err := killSession(t.Name); err != nil {
 						m.say("✖ fermeture impossible", cErr)
@@ -642,7 +646,7 @@ func (m *model) open(p *Project) tea.Cmd {
 	}
 	ss := m.sessionsOf(p)
 	if len(ss) == 0 {
-		return m.startNew(p, false)
+		return m.pickAgent(p)
 	}
 	best := ss[0]
 	for _, s := range ss[1:] {
@@ -653,17 +657,43 @@ func (m *model) open(p *Project) tea.Cmd {
 	return m.attachSession(best)
 }
 
-func (m *model) startNew(p *Project, force bool) tea.Cmd {
+// Les agents proposés en bas de la liste des sessions : Codex et Antigravity
+// seulement s'ils sont installés pour ce compte.
+func newAgents() []string {
+	as := []string{agentClaude}
+	if findCodex() != "" {
+		as = append(as, agentCodex)
+	}
+	if findAgy() != "" {
+		as = append(as, agentAgy)
+	}
+	return as
+}
+
+func newAgentAt(i int) string {
+	if a := newAgents(); i >= 0 && i < len(a) {
+		return a[i]
+	}
+	return agentClaude
+}
+
+func (m *model) startNew(p *Project, agent string, force bool) tea.Cmd {
 	if p == nil || m.busy != "" {
+		return nil
+	}
+	agent = normAgent(agent)
+	name := agentLabel(agent)
+	if agent != agentClaude && findAgent(agent) == "" {
+		m.say("◆ "+name+" n'est pas installé pour ce compte : c ouvre la configuration", cWarn)
 		return nil
 	}
 	if others := m.othersOn(p); len(others) > 0 && !force {
 		o := others[0]
 		m.confirm = confirmState{
-			title: o.User + " a Claude ouvert sur " + p.Name + " depuis " + dur(o.Started),
-			lines: []string{"Deux Claude sur le même dossier peuvent modifier les mêmes fichiers.",
-				"Ouvrir quand même une session ?"},
-			yes: func(m *model) tea.Cmd { return m.startNew(p, true) },
+			title: o.User + " a " + agentLabel(o.Agent) + " ouvert sur " + p.Name + " depuis " + dur(o.Started),
+			lines: []string{"Deux agents sur le même dossier peuvent modifier les mêmes fichiers.",
+				"Ouvrir quand même une session " + name + " ?"},
+			yes: func(m *model) tea.Cmd { return m.startNew(p, agent, true) },
 		}
 		m.scr = scrConfirm
 		return nil
@@ -674,13 +704,13 @@ func (m *model) startNew(p *Project, force bool) tea.Cmd {
 		return nil
 	}
 	prod := m.prod[p.Name]
-	m.busy, m.busyFor = "démarrage de Claude sur "+p.Name, p.Dir
+	m.busy, m.busyFor = "démarrage de "+name+" sur "+p.Name, p.Dir
 	pp := *p
 	return tea.Batch(spinTick(), func() tea.Msg {
 		note := pullIfClean(&pp)
-		name, err := newSession(&pp, letter, prod)
+		sess, err := newSession(&pp, letter, agent, prod)
 		label := p.Name + " · " + letter
-		msg := label + " · nouvelle session Claude"
+		msg := label + " · nouvelle session " + name
 		if prod {
 			msg += " · ▲ prod : mode normal"
 		}
@@ -688,7 +718,7 @@ func (m *model) startNew(p *Project, force bool) tea.Cmd {
 			msg += " · " + note
 		}
 		msg += " · Ctrl-b d menu · Ctrl-b Espace basculer"
-		return openMsg{name: name, msg: msg, err: err}
+		return openMsg{name: sess, msg: msg, err: err}
 	})
 }
 
@@ -697,9 +727,9 @@ func (m *model) attachSession(s Session) tea.Cmd {
 	msg := label
 	if !s.Running() && s.Shell() {
 		_ = relaunch(s)
-		msg += " · Claude relancé"
+		msg += " · " + agentLabel(s.Agent) + " relancé"
 	} else if s.Running() {
-		msg += " · Claude tourne"
+		msg += " · " + agentLabel(s.Agent) + " tourne"
 	}
 	msg += " · Ctrl-b d menu · Ctrl-b Espace basculer"
 	return m.attach(s.Name, msg)
@@ -785,7 +815,7 @@ func (m model) mouse(e tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.focus = 1
 		m.scur = i
 		if i >= len(ss) {
-			nc := m.startNew(m.sel(), false)
+			nc := m.startNew(m.sel(), newAgentAt(i-len(ss)), false)
 			return m, nc
 		}
 		nc := m.attachSession(ss[i])

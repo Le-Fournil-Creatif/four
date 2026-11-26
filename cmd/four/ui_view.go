@@ -19,6 +19,8 @@ func (m model) View() string {
 		rs = m.viewHelp()
 	case scrConfirm:
 		rs = m.viewConfirm()
+	case scrAgent:
+		rs = m.viewPick()
 	case scrAdd:
 		rs = m.viewAdd()
 	case scrGitHub:
@@ -361,11 +363,11 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 			addp(S("branche non suivie", cDD))
 		}
 		if m.prod[p.Name] {
-			addp(S("▲ prod : Claude demande avant d'agir", cErr))
+			addp(S("▲ prod : l'agent demande avant d'agir", cErr))
 		}
 		ls = append(ls, st)
 	} else if m.prod[p.Name] {
-		ls = append(ls, Ln(S(" ▲ prod : Claude demande avant d'agir", cErr)))
+		ls = append(ls, Ln(S(" ▲ prod : l'agent demande avant d'agir", cErr)))
 	}
 	if p.Legacy {
 		ls = append(ls, Ln(S(" "+p.Dir+" · ancien emplacement", cDD)))
@@ -380,7 +382,7 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 		if title == "" {
 			switch {
 			case s.Running():
-				title = "Claude"
+				title = agentLabel(s.Agent)
 			default:
 				title = "shell"
 			}
@@ -404,7 +406,7 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 		}
 		if s.Remote {
 			right = append([]seg{S("⇄ remote  ", cOk)}, right...)
-		} else if s.Running() {
+		} else if s.Running() && s.Agent == agentClaude {
 			right = append([]seg{S("remote off  ", cDD)}, right...)
 		}
 		if s.Attached > 0 {
@@ -417,12 +419,18 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 		}
 		ls = append(ls, ln)
 	}
-	hits[len(ls)] = len(ss)
-	nl := lr([]seg{S(" +  ", cAcc), S("nouvelle session Claude", cD)}, []seg{S("n ", cD)}, iw)
-	if m.focus == 1 && m.scur == len(ss) {
-		nl = lr([]seg{S("▌", cAcc), S("+  ", cAcc), P("nouvelle session Claude")}, []seg{S("n ", cD)}, iw).Sel()
+	for j, a := range newAgents() {
+		i, t, key := len(ss)+j, "nouvelle session "+agentLabel(a), ""
+		if j == 0 {
+			key = "n "
+		}
+		hits[len(ls)] = i
+		nl := lr([]seg{S(" +  ", cAcc), S(t, cD)}, []seg{S(key, cD)}, iw)
+		if m.focus == 1 && m.scur == i {
+			nl = lr([]seg{S("▌", cAcc), S("+  ", cAcc), P(t)}, []seg{S(key, cD)}, iw).Sel()
+		}
+		ls = append(ls, nl)
 	}
-	ls = append(ls, nl)
 
 	// Équipe
 	others := m.othersOn(p)
@@ -463,7 +471,7 @@ func (m model) rightLines(p *Project, iw, ih int) ([]Line, map[int]int) {
 			// Ailleurs ?
 			if e := firstActive(m.presence, t, time.Now()); e != nil {
 				ls = append(ls, lr([]seg{S(" "+t, uc), S("  sur "+e.Project, cD)},
-					[]seg{S("●", cOk), S(" Claude · "+dur(e.Since)+" ", cD)}, iw))
+					[]seg{S("●", cOk), S(" "+agentLabel(e.Agent)+" · "+dur(e.Since)+" ", cD)}, iw))
 			} else {
 				ls = append(ls, lr([]seg{S(" "+t, cD)}, []seg{S("○", cDD), S(" hors ligne ", cDD)}, iw))
 			}
@@ -543,13 +551,13 @@ func (m model) viewHelp() []string {
 	h := func(t string) Line { return Ln(B("   "+t, cD)) }
 	ls := []Line{crumb("Aide"), Ln(),
 		h("PROJETS"),
-		k("↵", "ouvrir : rejoint la dernière session, sinon lance Claude"),
-		k("n", "nouvelle session Claude sur le projet (a, b, c…)"),
+		k("↵", "ouvrir : rejoint la dernière session, sinon en crée une"),
+		k("n", "nouvelle session : choisir Claude, Codex ou Gemini (a, b, c…)"),
 		k("→", "sessions du projet : ↵ rejoindre, lettre directe, x fermer"),
 		k("/", "chercher (approximatif : « pgn » trouve pogne)"),
 		k("a", "ajouter un projet : repo GitHub existant ou nouveau"),
 		k("g", "donner un repo GitHub au projet (lier ou créer)"),
-		k("r", "actualiser · c configuration (GitHub, Claude, clé SSH)"),
+		k("r", "actualiser · c configuration (GitHub, Claude, Codex, Gemini, clé SSH)"),
 		Ln(),
 		h("DANS UNE SESSION"),
 		k("Ctrl-b Espace", "ce menu par-dessus la session, pour basculer"),
@@ -557,7 +565,8 @@ func (m model) viewHelp() []string {
 		k("Ctrl-b 1…9", "aller à la session de ce numéro dans le panneau de droite"),
 		k("Ctrl-b →", "entrer dans le panneau : ↑↓ choisir, ↵ ouvrir, échap revenir"),
 		k("Ctrl-b p", "masquer ou réafficher le panneau des sessions"),
-		k("Ctrl-b d", "revenir au menu (Claude continue de tourner)"),
+		k("Ctrl-b P", "rétrécir ou élargir le panneau des sessions"),
+		k("Ctrl-b d", "revenir au menu (l'agent continue de tourner)"),
 		k("Ctrl-b x", "fermer la session"),
 		Ln(),
 		h("BON À SAVOIR"),
@@ -565,7 +574,8 @@ func (m model) viewHelp() []string {
 		Ln(S("    Chacun a ses sessions, son compte Claude et son GitHub. ✓ cuit et ◆ attend", cD)),
 		Ln(S("    s'affichent dans la barre du bas et dans le panneau de droite (fenêtre d'au", cD)),
 		Ln(S("    moins "+itoa(panelMinW)+" colonnes), même depuis un autre projet.", cD)),
-		Ln(S("    Claude demande avant d'agir, sauf pour les projets listés dans "+shareDir()+"/auto", cD)),
+		Ln(S("    Claude et Codex demandent avant d'agir, sauf pour les projets listés dans", cD)),
+		Ln(S("    "+shareDir()+"/auto", cD)),
 		Ln(S("    (* pour tous). ▲ prod (liste dans "+shareDir()+"/prod) l'emporte toujours.", cD)),
 		Ln(S("    ⇄ remote : Remote Control est connecté sur cette session (/remote-control).", cD)),
 		Ln(S("    four a son propre tmux (tmux -L "+Socket+").", cD)),
@@ -593,5 +603,34 @@ func (m model) viewConfirm() []string {
 	out := []string{crumb("Confirmer").R(m.w, ""), Ln().R(m.w, "")}
 	out = append(out, indent(3, box(w, len(body)+2, body, []seg{B(c.title, cWarn)}, nil, bRound, cWarn))...)
 	out = append(out, Ln().R(m.w, ""), keys("   ", m.w, "o", "oui", "n", "non", "échap", "retour").R(m.w, ""))
+	return out
+}
+
+// ── Choix de l'agent ────────────────────────────────────────────────────
+
+func (m model) viewPick() []string {
+	c := m.pick
+	body := []Line{Ln()}
+	for i, a := range pickAgents {
+		name, note := agentLabel(a), ""
+		col := cFg
+		if findAgent(a) == "" {
+			note, col = "  pas installé · c configuration", cDD
+		}
+		l := Ln(Sp(2), K(" "+itoa(i+1)+" "), Sp(2), S(name, col), S(note, cDD))
+		if i == c.cur {
+			l = Ln(S(" ▌", cAcc), K(" "+itoa(i+1)+" "), Sp(2), B(name, cAcc), S(note, cDD))
+		}
+		body = append(body, l)
+	}
+	body = append(body, Ln())
+	title := "Nouvelle session"
+	if c.p != nil {
+		title += " sur " + c.p.Name
+	}
+	w := min(max(len([]rune(title))+8, 48), m.w-6)
+	out := []string{crumb("Nouvelle session").R(m.w, ""), Ln().R(m.w, "")}
+	out = append(out, indent(3, box(w, len(body)+2, body, []seg{B(title, cAcc)}, nil, bRound, cAcc))...)
+	out = append(out, Ln().R(m.w, ""), keys("   ", m.w, "1 2 3", "agent", "↑↓", "choisir", "↵", "lancer", "échap", "retour").R(m.w, ""))
 	return out
 }

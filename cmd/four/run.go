@@ -51,6 +51,8 @@ func runSession() int {
 	dir := os.Getenv("FOUR_DIR")
 	sess := os.Getenv("FOUR_SESSION")
 	letter := os.Getenv("FOUR_LETTER")
+	agent := normAgent(os.Getenv("FOUR_AGENT"))
+	name := agentLabel(agent)
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
@@ -62,21 +64,25 @@ func runSession() int {
 	note := ""
 	switch {
 	case prodSet()[proj]:
-		note = " · \x1b[31m▲ prod : Claude en mode normal, il demande avant d'agir" + rst + dim
+		note = " · \x1b[31m▲ prod : " + name + " en mode normal, il demande avant d'agir" + rst + dim
 	case auto:
-		note = " · Claude agit sans demander de confirmation"
+		note = " · " + name + " agit sans demander de confirmation"
 	}
-	fmt.Printf("%s── %s · session %s%s%s\n", dim, proj, letter, note, rst)
-	fmt.Print("\x1b]2;Claude\x1b\\") // titre du pane, en attendant celui de Claude
+	fmt.Printf("%s── %s · session %s · %s%s%s\n", dim, proj, letter, name, note, rst)
+	fmt.Print("\x1b]2;" + name + "\x1b\\") // titre du pane, en attendant celui de l'agent
 
-	claude := findClaude()
-	if claude == "" {
-		fmt.Println("Claude Code n'est pas installé pour ce compte : four setup l'installe, puis relance : four _run")
+	bin := findAgent(agent)
+	if bin == "" {
+		what := name
+		if agent == agentClaude {
+			what = "Claude Code"
+		}
+		fmt.Println(what + " n'est pas installé pour ce compte : four setup l'installe, puis relance : four _run")
 		return execShell(dir)
 	}
 	now := time.Now().Unix()
 	if sess != "" {
-		writePresence(Presence{User: me, Project: proj, Dir: dir, Session: sess, Pid: os.Getpid(),
+		writePresence(Presence{User: me, Project: proj, Dir: dir, Session: sess, Agent: agent, Pid: os.Getpid(),
 			Start: procStart(os.Getpid()), State: "open", Since: now, Started: now})
 		clearMark(sess)
 	}
@@ -87,7 +93,7 @@ func runSession() int {
 		}
 	}
 
-	cmd := exec.Command(claude, claudeArgs(auto)...)
+	cmd := exec.Command(bin, agentCmdArgs(agent, bin, auto)...)
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	// Sans TMUX_PANE, les hooks d'autres outils basés sur tmux ne réagissent pas
@@ -98,7 +104,7 @@ func runSession() int {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTSTP, syscall.SIGHUP, syscall.SIGTERM)
 	if err := cmd.Start(); err != nil {
 		cleanup()
-		fmt.Println("Claude n'a pas démarré :", err)
+		fmt.Println(name+" n'a pas démarré :", err)
 		return execShell(dir)
 	}
 	go func() {
@@ -113,11 +119,11 @@ func runSession() int {
 	_ = cmd.Wait()
 	signal.Stop(sigs)
 	cleanup()
-	fmt.Printf("\n%s── Claude s'est arrêté. Shell dans %s · « claude » ou Ctrl-b Espace ↵ pour le relancer.%s\n", dim, dir, rst)
+	fmt.Printf("\n%s── %s s'est arrêté. Shell dans %s · « %s » ou Ctrl-b Espace ↵ pour le relancer.%s\n", dim, name, dir, agentRelaunch(agent), rst)
 	return execShell(dir)
 }
 
-// ── Hooks de Claude ─────────────────────────────────────────────────────
+// ── Hooks des agents ─────────────────────────────────────────
 
 func notify(kind string) {
 	// L'entrée JSON du hook : la lire sans jamais bloquer.
@@ -139,15 +145,22 @@ func notify(kind string) {
 	case "done", "wait":
 		writeMark(sess, kind)
 		if kind == "wait" {
+			// Claude (Notification) donne un message, Codex (PermissionRequest)
+			// le nom de l'outil.
 			var h struct {
-				Message string `json:"message"`
+				Message  string `json:"message"`
+				ToolName string `json:"tool_name"`
 			}
 			select {
 			case b := <-in:
 				_ = json.Unmarshal(b, &h)
 			case <-time.After(300 * time.Millisecond):
 			}
-			writeWaitMsg(sess, waitText(h.Message))
+			msg := waitText(h.Message)
+			if msg == "" && h.ToolName != "" {
+				msg = "Autoriser " + h.ToolName + " ?"
+			}
+			writeWaitMsg(sess, msg)
 		} else {
 			clearWaitMsg(sess)
 		}
@@ -210,7 +223,7 @@ func alertOthers(sess, kind string) {
 	label := sessLabel(sess)
 	msg := "✓ " + label + " : c'est cuit · Ctrl-b Espace"
 	if kind == "wait" {
-		msg = "◆ " + label + " : Claude attend ta réponse · Ctrl-b Espace"
+		msg = "◆ " + label + " : " + agentLabel(os.Getenv("FOUR_AGENT")) + " attend ta réponse · Ctrl-b Espace"
 	}
 	watched := false
 	for _, c := range clients() {

@@ -1,7 +1,8 @@
 package main
 
 // Assistant de configuration (première connexion, puis touche c) : clé SSH,
-// groupe devs, GitHub, identité git, Claude, notifications.
+// groupe devs, GitHub, identité git, Claude, notifications, Codex et
+// Gemini (facultatifs).
 
 import (
 	"bufio"
@@ -58,6 +59,9 @@ type (
 	ghCodeMsg          struct{ code, url string }
 	ghFlowMsg          struct{ err error }
 	claudeInstalledMsg struct{}
+	codexInstalledMsg  struct{}
+	codexLoggedMsg     struct{}
+	agyLoggedMsg       struct{}
 )
 
 const claudeMissing = "pas installé pour ce compte · ↵ l'installe"
@@ -85,6 +89,54 @@ func claudeLoginCmd(c string) tea.Cmd {
 	})
 }
 
+// Connexion par code (comme GitHub) : rien à ouvrir sur le serveur. Les
+// hooks de four sont posés et approuvés juste après.
+func codexLoginCmd(c string) tea.Cmd {
+	return tea.ExecProcess(exec.Command(c, "login", "--device-auth"), func(error) tea.Msg {
+		if !codexLoggedIn(c) {
+			return setupActMsg{key: "codex", err: errors.New("pas encore connecté : ↵ pour recommencer")}
+		}
+		return codexLoggedMsg{}
+	})
+}
+
+func codexHooksCmd() tea.Cmd {
+	return actCmd("codex", func() (string, error) {
+		return "connecté · ✓ cuit et ◆ attend", installCodexHooks(findCodex())
+	})
+}
+
+// Antigravity se connecte au premier lancement d'agy : on le lance, la
+// personne se connecte puis quitte agy, et les hooks suivent.
+func agyLoginCmd(c string) tea.Cmd {
+	return tea.ExecProcess(exec.Command(c), func(error) tea.Msg {
+		if !agyLoggedIn() {
+			return setupActMsg{key: "agy", err: errors.New("pas encore connecté : ↵ pour recommencer")}
+		}
+		return agyLoggedMsg{}
+	})
+}
+
+func agyHooksCmd() tea.Cmd {
+	return actCmd("agy", func() (string, error) { return "connecté · ✓ cuit", installAgyHooks() })
+}
+
+// Codex et Antigravity sont facultatifs : passés ou pas installés, ils ne
+// comptent pas comme une étape à faire.
+func (it sItem) counts() bool {
+	return !((it.key == "codex" || it.key == "agy") && it.state == stSkip)
+}
+
+func (s setupState) total() int {
+	n := 0
+	for _, it := range s.items {
+		if it.counts() {
+			n++
+		}
+	}
+	return n
+}
+
 var setupLabels = []struct{ key, label, todo string }{
 	{"ssh", "Compte SSH", "ta clé publique, pour te connecter sans mot de passe"},
 	{"group", "Accès projets", "groupe devs : écrire dans " + Root},
@@ -92,6 +144,8 @@ var setupLabels = []struct{ key, label, todo string }{
 	{"ident", "Identité git", "remplie depuis ton compte GitHub"},
 	{"claude", "Claude", "connexion à ton abonnement"},
 	{"notif", "Notifications", "quand Claude a fini ou attend, et limites de l'abonnement"},
+	{"codex", "Codex", "facultatif : l'agent d'OpenAI, à côté de Claude"},
+	{"agy", "Gemini", "facultatif : l'agent de Google (Antigravity, agy), à côté de Claude"},
 }
 
 func newSetupState() setupState {
@@ -205,6 +259,13 @@ func quickSetupMissing() int {
 
 func setupCheckCmd() tea.Cmd {
 	return func() tea.Msg {
+		// Codex démarre son app-server pour lire l'état des hooks : en parallèle.
+		type cst struct {
+			st   int
+			info string
+		}
+		codex := make(chan cst, 1)
+		go func() { st, info := codexStatus(); codex <- cst{st, info} }()
 		items := newSetupState().items
 		set := func(k string, state int, info string) {
 			for i := range items {
@@ -258,6 +319,10 @@ func setupCheckCmd() tea.Cmd {
 		} else {
 			set("notif", stTodo, "")
 		}
+		c := <-codex
+		set("codex", c.st, c.info)
+		st, info := agyStatus()
+		set("agy", st, info)
 		return setupCheckMsg(items)
 	}
 }
@@ -509,7 +574,7 @@ func (m model) updateSetup(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.checked = true
 		m.missing = 0
 		for _, it := range s.items {
-			if it.state != stOK {
+			if it.state != stOK && it.counts() {
 				m.missing++
 			}
 		}
@@ -573,6 +638,21 @@ func (m model) updateSetup(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		it.info = "installé"
 		return m, claudeLoginCmd(c)
+	case codexInstalledMsg:
+		it := s.item("codex")
+		c := findCodex()
+		if c == "" {
+			it.state, it.err = stErr, "installation interrompue : ↵ pour réessayer"
+			return m, nil
+		}
+		it.info = "installé"
+		return m, codexLoginCmd(c)
+	case codexLoggedMsg:
+		s.item("codex").state = stRun
+		return m, tea.Batch(codexHooksCmd(), spinTick())
+	case agyLoggedMsg:
+		s.item("agy").state = stRun
+		return m, tea.Batch(agyHooksCmd(), spinTick())
 	case attachedMsg:
 		return m, nil
 	case tea.KeyMsg:
@@ -689,6 +769,28 @@ func (m model) keySetup(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(actCmd("notif", func() (string, error) {
 				return "✓ cuit et ◆ attend dans la barre et le menu", installHooks()
 			}), spinTick())
+		case "codex":
+			it.state = stRun
+			switch c := findCodex(); {
+			case c == "":
+				return m, tea.ExecProcess(exec.Command("bash", "-c", codexInstall),
+					func(error) tea.Msg { return codexInstalledMsg{} })
+			case !codexLoggedIn(c):
+				return m, codexLoginCmd(c)
+			default:
+				return m, tea.Batch(codexHooksCmd(), spinTick())
+			}
+		case "agy":
+			switch c := findAgy(); {
+			case c == "":
+				it.err = "agy n'est pas installé pour ce compte · s pour passer"
+			case !agyLoggedIn():
+				it.state = stRun
+				return m, agyLoginCmd(c)
+			default:
+				it.state = stRun
+				return m, tea.Batch(agyHooksCmd(), spinTick())
+			}
 		}
 	}
 	return m, nil
@@ -751,9 +853,9 @@ func (m model) viewSetup() []string {
 	body = append(body, Ln())
 	n := s.doneCount()
 	barW := iw - 14
-	fill := barW * n / len(s.items)
+	fill := barW * n / max(1, s.total())
 	body = append(body, Ln(Sp(3), S(strings.Repeat("━", fill), cAcc), S(strings.Repeat("━", barW-fill), cDD),
-		S("  "+itoa(n)+" / "+itoa(len(s.items)), cD)), Ln())
+		S("  "+itoa(n)+" / "+itoa(s.total()), cD)), Ln())
 	out := []string{crumb(title).R(m.w, ""), Ln(S(sub, cD)).R(m.w, ""), Ln().R(m.w, "")}
 	rt := []seg{}
 	if !s.checked {
@@ -762,7 +864,7 @@ func (m model) viewSetup() []string {
 	out = append(out, box(bw, len(body)+2, body, nil, rt, bRound, cBd)...)
 	out = append(out, Ln().R(m.w, ""))
 	switch {
-	case s.cur >= len(s.items) && n == len(s.items):
+	case s.cur >= len(s.items) && n == s.total():
 		out = append(out, Ln(S("  ✓ tout est prêt.", cOk)).R(m.w, ""),
 			keys(" ", m.w, "↵", "aller au menu").R(m.w, ""))
 	case s.cur >= len(s.items):
@@ -826,6 +928,28 @@ func (m model) setupDetail(it sItem, iw int) []Line {
 	case "notif":
 		if it.state != stOK {
 			txt("↵ ajoute les hooks et la ligne d'état de four dans ~/.claude/settings.json (les autres restent)", cDD)
+		}
+	case "codex":
+		switch {
+		case it.state == stOK:
+			txt("n dans le menu, puis Codex", cDD)
+		case findCodex() == "":
+			txt("↵ installe Codex pour ce compte (installeur officiel), puis te connecte à ton compte ChatGPT · s pour passer", cDD)
+		case !codexCreds():
+			txt("↵ lance « codex login --device-auth » : un lien à ouvrir, puis un code à saisir", cDD)
+		default:
+			txt("↵ ajoute les hooks de four dans "+codexHooksPath()+" et les approuve (les autres restent)", cDD)
+		}
+	case "agy":
+		switch {
+		case it.state == stOK:
+			txt("n dans le menu, puis Gemini · pas de ◆ attend (agy ne le signale pas)", cDD)
+		case findAgy() == "":
+			txt("installe Antigravity (agy, pour Gemini) pour ce compte, puis reviens ici · s pour passer", cDD)
+		case !agyLoggedIn():
+			txt("↵ lance agy : connecte-toi à ton compte Google, puis quitte agy", cDD)
+		default:
+			txt("↵ ajoute le hook « four » dans "+agyHooksPath()+" (les autres restent)", cDD)
 		}
 	}
 	return ls

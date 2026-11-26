@@ -4,7 +4,7 @@ package main
 // chaque session, qui range les sessions par urgence. Ctrl-b Tab et
 // Ctrl-b 1…9 sont des raccourcis tmux : ils marchent depuis Claude, sans
 // passer par le panneau. Le panneau n'apparaît que si la fenêtre est assez
-// large, et Ctrl-b p le masque partout.
+// large, Ctrl-b p le masque partout et Ctrl-b P le rétrécit.
 
 import (
 	"os"
@@ -19,6 +19,7 @@ import (
 
 const (
 	panelW    = 48  // largeur du panneau
+	panelNarW = 34  // largeur du panneau rétréci (Ctrl-b P)
 	panelMinW = 130 // fenêtre plus étroite : pas de panneau, Claude garde la place
 )
 
@@ -117,7 +118,7 @@ func switchTo(client string, s Session) {
 	note := ""
 	if !s.Running() && s.Shell() {
 		_ = relaunch(s)
-		note = s.Project + " · " + s.Letter + " · Claude relancé"
+		note = s.Project + " · " + s.Letter + " · " + agentLabel(s.Agent) + " relancé"
 	}
 	markSeen(s.Name)
 	args := []string{"switch-client"}
@@ -144,6 +145,15 @@ func panelOffFile() string { return filepath.Join(stateDir(), "panel-off") }
 
 func panelOn() bool { return !exists(panelOffFile()) }
 
+func panelNarrowFile() string { return filepath.Join(stateDir(), "panel-narrow") }
+
+func panelWidth() int {
+	if exists(panelNarrowFile()) {
+		return panelNarW
+	}
+	return panelW
+}
+
 // Ajoute, recale ou retire le panneau d'une session (toutes si only est vide).
 // Appelé par les hooks tmux (attache, changement de session, redimension).
 func panelEnsure(only string) {
@@ -152,7 +162,7 @@ func panelEnsure(only string) {
 		defer f.Close()
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX) // deux hooks à la fois : un seul panneau
 	}
-	on := panelOn()
+	on, pw := panelOn(), panelWidth()
 	ss, err := scanSessions()
 	if err != nil {
 		return
@@ -164,10 +174,10 @@ func panelEnsure(only string) {
 		want := on && s.WinW >= panelMinW
 		switch {
 		case want && s.PanelPane == "":
-			_ = tmuxCmd("split-window", "-d", "-f", "-h", "-l", itoa(panelW), "-t", s.Pane,
+			_ = tmuxCmd("split-window", "-d", "-f", "-h", "-l", itoa(pw), "-t", s.Pane,
 				shQuote(Bin)+" _panel").Run()
 		case want:
-			_ = tmuxCmd("resize-pane", "-t", s.PanelPane, "-x", itoa(panelW)).Run()
+			_ = tmuxCmd("resize-pane", "-t", s.PanelPane, "-x", itoa(pw)).Run()
 		case s.PanelPane != "":
 			_ = tmuxCmd("kill-pane", "-t", s.PanelPane).Run()
 		}
@@ -181,6 +191,18 @@ func panelToggle(client string) {
 		msg = "panneau des sessions masqué · Ctrl-b p pour le réafficher"
 	} else {
 		_ = os.Remove(panelOffFile())
+	}
+	panelEnsure("")
+	say(client, msg)
+}
+
+func panelNarrowToggle(client string) {
+	msg := "panneau des sessions rétréci · Ctrl-b P pour l'élargir"
+	if exists(panelNarrowFile()) {
+		_ = os.Remove(panelNarrowFile())
+		msg = "panneau des sessions élargi"
+	} else {
+		_ = os.WriteFile(panelNarrowFile(), nil, 0o644)
 	}
 	panelEnsure("")
 	say(client, msg)
@@ -481,7 +503,7 @@ func sessTitle(s Session) (string, string) {
 	case s.Title != "":
 		return s.Title, cFg
 	case s.Running():
-		return "Claude", cFg
+		return agentLabel(s.Agent), cFg
 	}
 	return "shell", cD
 }
@@ -591,7 +613,7 @@ func (m panelModel) footer() []pline {
 	}
 	rule := pline{l: Ln(Sp(1), S(strings.Repeat("─", max(m.w-2, 0)), cBd))}
 	if m.focused {
-		return []pline{rule, k("↑↓", "choisir"), k("↵", "ouvrir"), k("échap", "revenir à Claude")}
+		return []pline{rule, k("↑↓", "choisir"), k("↵", "ouvrir"), k("échap", "revenir à la session")}
 	}
 	return []pline{rule, k("ctrl-b tab", "prochaine à traiter"), k("ctrl-b →", "naviguer ici"),
 		k("ctrl-b 1…9", "aller"), k("ctrl-b p", "masquer le panneau")}

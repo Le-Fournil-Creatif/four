@@ -1,7 +1,7 @@
 package main
 
 // Présence : chaque session four écrit une fiche dans /srv/repos/.four/presence
-// (qui, quel projet, état de Claude). Les sessions vivent dans le tmux de
+// (qui, quel projet, quel agent et son état). Les sessions vivent dans le tmux de
 // chaque utilisateur, invisibles pour l'autre : ces fiches font le lien. Une
 // fiche dont le processus n'existe plus est ignorée puis effacée.
 
@@ -22,6 +22,7 @@ type Presence struct {
 	Project string `json:"project"`
 	Dir     string `json:"dir"`
 	Session string `json:"session"`
+	Agent   string `json:"agent,omitempty"` // claude (ou vide) | codex | agy
 	Pid     int    `json:"pid"`
 	Start   uint64 `json:"start"`
 	State   string `json:"state"` // open | busy | done | wait

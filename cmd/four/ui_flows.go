@@ -719,7 +719,7 @@ func sessionStep(name, dir string, out *string) *step {
 		if letter == "" {
 			return "", errors.New("plus de lettre libre pour " + name)
 		}
-		s, err := newSession(p, letter, prodSet()[name])
+		s, err := newSession(p, letter, agentClaude, prodSet()[name])
 		*out = s
 		return name + " · " + letter, err
 	}}
@@ -1469,4 +1469,53 @@ func (m model) viewLink() []string {
 	}
 	out = append(out, keys(" ", m.w, "tab", "champ suivant", "←→", "changer", "↵", "valider", "échap", "retour").R(m.w, ""))
 	return out
+}
+
+// ── Choix de l'agent d'une nouvelle session ─────────────────────────────
+
+type pickState struct {
+	p   *Project
+	cur int
+}
+
+var pickAgents = []string{agentClaude, agentCodex, agentAgy}
+
+// n (ou ↵ sur un projet sans session) : demander l'agent. Avec Claude seul
+// installé, pas de question.
+func (m *model) pickAgent(p *Project) tea.Cmd {
+	if p == nil || m.busy != "" {
+		return nil
+	}
+	if len(newAgents()) == 1 {
+		return m.startNew(p, agentClaude, false)
+	}
+	m.pick = pickState{p: p}
+	m.scr = scrAgent
+	return nil
+}
+
+func (m model) updatePick(msg tea.Msg) (tea.Model, tea.Cmd) {
+	k, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	choose := func(i int) (tea.Model, tea.Cmd) {
+		p := m.pick.p
+		m.scr, m.pick = scrDash, pickState{}
+		nc := m.startNew(p, pickAgents[i], false)
+		return m, nc
+	}
+	switch s := k.String(); s {
+	case "up", "k", "shift+tab":
+		m.pick.cur = (m.pick.cur + len(pickAgents) - 1) % len(pickAgents)
+	case "down", "j", "tab":
+		m.pick.cur = (m.pick.cur + 1) % len(pickAgents)
+	case "enter":
+		return choose(m.pick.cur)
+	case "1", "2", "3":
+		return choose(int(s[0] - '1'))
+	case "esc", "q":
+		m.scr, m.pick = scrDash, pickState{}
+	}
+	return m, nil
 }

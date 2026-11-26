@@ -13,9 +13,11 @@ const helpText = `four : le menu des projets du serveur.
 
   four              ouvre le menu
   four <projet>     ouvre directement le projet (dernière session, sinon Claude)
-  four setup        assistant : clé SSH, GitHub, identité git, Claude, notifications
+  four setup        assistant : clé SSH, GitHub, identité git, Claude, notifications,
+                    Codex et Gemini (facultatifs)
   four version
 
+Dans le menu : n lance une session : Claude, Codex ou Gemini au choix.
 Dans une session : Ctrl-b Espace ouvre le menu par-dessus, Ctrl-b d revient
 au menu, Ctrl-b x ferme la session. Projets : ` + "%s" + `
 `
@@ -35,6 +37,9 @@ func main() {
 	case "_notify":
 		if len(args) > 1 {
 			notify(args[1])
+			if len(args) > 2 && args[2] == agentAgy {
+				fmt.Println("{}") // Antigravity attend une réponse JSON
+			}
 		}
 	case "_status":
 		fmt.Print(statusLine(args[1:]))
@@ -46,6 +51,8 @@ func main() {
 		panelEnsure(argAt(args, 1))
 	case "_panel-toggle":
 		panelToggle(argAt(args, 1))
+	case "_panel-narrow":
+		panelNarrowToggle(argAt(args, 1))
 	case "_goto":
 		n, _ := strconv.Atoi(argAt(args, 1))
 		panelGoto(n, argAt(args, 2), argAt(args, 3))
